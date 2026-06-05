@@ -1,0 +1,81 @@
+services:
+  # Laravel-приложение
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pro-context-app
+    restart: unless-stopped
+    tty: true
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    networks:
+      - pro-context-network
+    depends_on:
+      db:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+
+  # Веб-сервер Nginx
+  nginx:
+    image: nginx:alpine
+    container_name: pro-context-nginx
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "80:80"
+    volumes:
+      - .:/var/www/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - pro-context-network
+    depends_on:
+      app:
+        condition: service_started
+
+  # База данных MySQL
+  db:
+    image: mysql:8.0
+    container_name: pro-context-db
+    restart: unless-stopped
+    tty: true
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - pro-context-dbdata:/var/lib/mysql
+    networks:
+      - pro-context-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Сервис для первичной настройки приложения
+  setup:
+    build: .
+    container_name: pro-context-setup
+    volumes:
+      - .:/var/www/html
+    entrypoint: ["/bin/sh", "./docker-init.sh"]
+    networks:
+      - pro-context-network
+    depends_on:
+      db:
+        condition: service_healthy
+
+networks:
+  pro-context-network:
+    driver: bridge
+
+volumes:
+  pro-context-dbdata:
+    driver: local
